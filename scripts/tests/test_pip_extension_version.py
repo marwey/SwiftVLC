@@ -72,6 +72,8 @@ def synthetic_sources(
         "pip_controller_header": "",
         "sample_buffer_display": "",
         "video_output": "",
+        "media": "",
+        "media_header": "",
     }
     fragments = {
         4: {
@@ -491,6 +493,11 @@ static int OpenController(pip_controller_t *pipcontroller)
             "exports": "swiftvlc_libvlc_media_player_watch_time_with_video_output\n",
             "es_out": "vlc_input_decoder_SetSeekDisplayTime(dec, time);\n",
             "video_output": "drift = !submission_unproven ? vlc_clock_UpdateVideoFrameStep(clock);\n",
+        },
+        13: {
+            "media_header": "LIBVLC_API libvlc_media_t *libvlc_media_new_callbacks_with_release(void *opaque);\n",
+            "media": "libvlc_media_t *libvlc_media_new_callbacks_with_release(void *opaque)\n{ return 0; }\n",
+            "exports": "libvlc_media_new_callbacks_with_release\n",
         },
     }
     for current_version in range(4, highest_version + 1):

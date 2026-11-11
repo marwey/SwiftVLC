@@ -1,11 +1,16 @@
 diff --git a/include/vlc/libvlc_media.h b/include/vlc/libvlc_media.h
-index 05ae456..3f8bb8b 100644
+index 05ae456..e76d6ff 100644
 --- a/include/vlc/libvlc_media.h
 +++ b/include/vlc/libvlc_media.h
-@@ -354,6 +354,25 @@ LIBVLC_API libvlc_media_t *libvlc_media_new_callbacks(
+@@ -354,6 +354,30 @@ LIBVLC_API libvlc_media_t *libvlc_media_new_callbacks(
                                     libvlc_media_close_cb close_cb,
                                     void *opaque );
  
++/**
++ * Release callback of libvlc_media_new_callbacks_with_release().
++ */
++typedef void (*libvlc_media_release_cb)( void *opaque );
++
 +/**
 + * Create a media with custom callbacks, and a release callback for \p opaque.
 + *
@@ -23,7 +28,7 @@ index 05ae456..3f8bb8b 100644
 +                                   libvlc_media_seek_cb seek_cb,
 +                                   libvlc_media_close_cb close_cb,
 +                                   void *opaque,
-+                                   void (*release_cb)(void *opaque) );
++                                   libvlc_media_release_cb release_cb );
 +
  /**
   * Create a media as an empty node with a given name.
@@ -56,7 +61,7 @@ index a686bba..a0180ea 100644
  libvlc_media_new_location
  libvlc_media_new_path
 diff --git a/lib/media.c b/lib/media.c
-index b428635..1048d79 100644
+index b428635..e6a5d93 100644
 --- a/lib/media.c
 +++ b/lib/media.c
 @@ -456,13 +456,24 @@ libvlc_media_t *libvlc_media_new_callbacks(libvlc_media_open_cb open_cb,
@@ -73,7 +78,7 @@ index b428635..1048d79 100644
 +                                                        libvlc_media_seek_cb seek_cb,
 +                                                        libvlc_media_close_cb close_cb,
 +                                                        void *opaque,
-+                                                        void (*release_cb)(void *opaque))
++                                                        libvlc_media_release_cb release_cb)
  {
      libvlc_media_t *m = libvlc_media_new_location("imem://");
      if (unlikely(m == NULL))

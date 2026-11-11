@@ -2,7 +2,7 @@
 """Fail-closed resolver for SwiftVLC's additive libVLC extension ABI.
 
 The extension function is shared by several otherwise independent patches.
-This module is the single composition proof for versions 4 through 12: every
+This module is the single composition proof for versions 4 through 13: every
 stage must be complete, unique, and contiguous, and the implementation must be
 exactly one literal return of the resolved version.  Release callers should
 also provide ``expected_version`` from the ordered patch manifest so removing
@@ -46,6 +46,8 @@ OPTIONAL_SUCCESSOR_SOURCE_KEYS = frozenset(
     {
         "drawable_header",
         "es_out",
+        "media",
+        "media_header",
         "media_player_internal",
         "pip_controller",
         "pip_controller_header",
@@ -388,6 +390,18 @@ VERSION_GROUPS = (
                    r"drift\s*=\s*!submission_unproven\s*\?\s*vlc_clock_UpdateVideoFrameStep"),
             Marker("es_out", "selected decoder seek display threshold",
                    r"vlc_input_decoder_SetSeekDisplayTime\s*\(\s*dec\s*,"),
+        ),
+    ),
+    MarkerGroup(
+        "release-callback",
+        13,
+        (
+            marker("media_header", "release callback declaration",
+                   "libvlc_media_new_callbacks_with_release"),
+            Marker("media", "release callback implementation",
+                   r"\blibvlc_media_new_callbacks_with_release\s*\([^(){};]*\)\s*\{"),
+            Marker("exports", "release callback export",
+                   r"(?m)^libvlc_media_new_callbacks_with_release$"),
         ),
     ),
 )
@@ -1669,9 +1683,9 @@ def resolve_extension_version(
         required_same_version_groups: Sequence[str] = ()) -> Resolution:
     if (expected_version is not None
             and (isinstance(expected_version, bool)
-                 or expected_version not in range(4, 13))):
+                 or expected_version not in range(4, 14))):
         raise ExtensionVersionError(
-            f"expected version must be an integer from 4 through 12: "
+            f"expected version must be an integer from 4 through 13: "
             f"{expected_version!r}")
     if isinstance(required_same_version_groups, (str, bytes)):
         raise ExtensionVersionError(
@@ -2400,6 +2414,8 @@ def read_source_root(root: Path) -> Dict[str, str]:
             root / "modules/video_output/apple/VLCDrawable.h"
         ),
         "es_out": root / "src/input/es_out.c",
+        "media": root / "lib/media.c",
+        "media_header": root / "include/vlc/libvlc_media.h",
         "media_player_internal": root / "lib/media_player_internal.h",
         "pip_controller": (
             root

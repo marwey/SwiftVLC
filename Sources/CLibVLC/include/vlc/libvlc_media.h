@@ -355,6 +355,11 @@ LIBVLC_API libvlc_media_t *libvlc_media_new_callbacks(
                                    void *opaque );
 
 /**
+ * Release callback of libvlc_media_new_callbacks_with_release().
+ */
+typedef void (*libvlc_media_release_cb)( void *opaque );
+
+/**
  * Create a media with custom callbacks, and a release callback for \p opaque.
  *
  * \p release_cb runs once, when the native media is freed: after the last
@@ -371,7 +376,7 @@ LIBVLC_API libvlc_media_t *libvlc_media_new_callbacks_with_release(
                                    libvlc_media_seek_cb seek_cb,
                                    libvlc_media_close_cb close_cb,
                                    void *opaque,
-                                   void (*release_cb)(void *opaque) );
+                                   libvlc_media_release_cb release_cb );
 
 /**
  * Create a media as an empty node with a given name.
