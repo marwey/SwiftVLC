@@ -1409,6 +1409,8 @@ if [ -n "${PATCHES_DIR}" ] && [ -d "${PATCHES_DIR}" ]; then
                 manifest_extension_candidate=11 ;;
             0050-seek-video-output-contract.patch)
                 manifest_extension_candidate=12 ;;
+            0065-media-release-callback.patch)
+                manifest_extension_candidate=13 ;;
         esac
         if [ -n "$manifest_extension_candidate" ] &&
            { [ -z "$swiftvlc_manifest_extension_version" ] ||

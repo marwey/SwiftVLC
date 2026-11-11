@@ -2078,6 +2078,7 @@ expected_manifest_tail = [
     "15a9145c5d1862e314f251f94e2e58604e290068ce76e9cc42e414a5de4abf89  0062-aout-delay-correctness.patch",
     "5f46ff439a86888f2988411d4e7d3656fb491e3f645e96deb70e7e6274efc40d  0063-adaptive-discontinuity-drain-and-timeline.patch",
     "537310a19cc6bcade9c18f4fd23062149d3797d2433450fe888f7461441ca5a3  0064-coreaudio-timing-report-interval.patch",
+    "26be3604856f123e0ffa0f8eaed9f03f153261aeace3876c9c262f44a8a9cfbe  0065-media-release-callback.patch",
 ]
 if manifest_lines[-len(expected_manifest_tail):] != expected_manifest_tail:
     sys.exit(
@@ -2741,14 +2742,14 @@ for marker in (
     '"paused picture late-drop exemption"',
     '"paused picture fixed clock point"',
     '"paused picture immediate render"',
-    'expected version must be an integer from 4 through 12',
+    'expected version must be an integer from 4 through 13',
 ):
     if extension_resolver.count(marker) != 1:
         sys.exit(f"v10 source resolver contract is incomplete: {marker}")
 for marker in (
-    'Usage: $0 --expected-version <1..12>',
-    'if [[ ! "$EXPECTED_VERSION" =~ ^([1-9]|10|11|12)$ ]]; then',
-    'An exact expected extension version from 1 through 12 is required.',
+    'Usage: $0 --expected-version <1..13>',
+    'if [[ ! "$EXPECTED_VERSION" =~ ^([1-9]|10|11|12|13)$ ]]; then',
+    'An exact expected extension version from 1 through 13 is required.',
     'VERSION_9_SYMBOLS=(\n'
     '        swiftvlc_libvlc_media_player_set_pip_playback_identity\n'
     '    )',
@@ -2800,7 +2801,7 @@ adaptive_source_gate = native_patch_series_validator.index(
     'section "Validating adaptive ES codec-configuration recycling"'
 )
 v11_source_gate = native_patch_series_validator.index(
-    'section "Validating exact integrated extension version 12"'
+    'section "Validating exact integrated extension version 13"'
 )
 subtitle_snapshot_gate = native_patch_series_validator.index(
     'section "Validating ordered semantic subtitle-text snapshots"'
@@ -2823,7 +2824,7 @@ if not (
         "order"
     )
 for marker in (
-    '--expected-version 12',
+    '--expected-version 13',
     '"$SCRIPT_DIR/patches/validation/adaptive-es-recycling-source-check.py"',
     '"$SCRIPT_DIR/patches/0042-adaptive-es-recycling-extradata-identity.patch"',
     '"$SCRIPT_DIR/patches/validation/native-pip-output-identity-source-check.py"',

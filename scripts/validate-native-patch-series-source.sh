@@ -217,10 +217,10 @@ python3 -B \
     "$VLC_SOURCE_ROOT" \
     "$SCRIPT_DIR/patches/0042-adaptive-es-recycling-extradata-identity.patch"
 
-section "Validating exact integrated extension version 12"
+section "Validating exact integrated extension version 13"
 "$SCRIPT_DIR/validate-native-extension-contract.sh" \
     --source-root "$VLC_SOURCE_ROOT" \
-    --expected-version 12 \
+    --expected-version 13 \
     --require-apple-audio-session-leases \
     --run-mutations
 

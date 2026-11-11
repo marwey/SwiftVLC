@@ -17,7 +17,7 @@ RUN_MUTATIONS=no
 
 usage() {
     cat >&2 <<EOF
-Usage: $0 --expected-version <1..12> [--source-root <patched-vlc>] \\
+Usage: $0 --expected-version <1..13> [--source-root <patched-vlc>] \\
   [--xcframework <candidate>] [--require-apple-audio-session-leases] \\
   [--run-mutations]
 EOF
@@ -60,8 +60,8 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-if [[ ! "$EXPECTED_VERSION" =~ ^([1-9]|10|11|12)$ ]]; then
-    echo "An exact expected extension version from 1 through 12 is required." >&2
+if [[ ! "$EXPECTED_VERSION" =~ ^([1-9]|10|11|12|13)$ ]]; then
+    echo "An exact expected extension version from 1 through 13 is required." >&2
     exit 2
 fi
 if [[ "$REQUIRE_LEASES" = yes ]] && (( EXPECTED_VERSION < 8 )); then
@@ -105,7 +105,7 @@ PY
 
 if [[ -n "$SOURCE_ROOT" ]]; then
     if (( EXPECTED_VERSION < 4 )); then
-        echo "Source composition proof is defined for extension versions 4 through 12." >&2
+        echo "Source composition proof is defined for extension versions 4 through 13." >&2
         exit 2
     fi
     if [[ ! -d "$SOURCE_ROOT" ]]; then
