@@ -1,0 +1,139 @@
+diff --git a/include/vlc/libvlc_media.h b/include/vlc/libvlc_media.h
+index 05ae456..3f8bb8b 100644
+--- a/include/vlc/libvlc_media.h
++++ b/include/vlc/libvlc_media.h
+@@ -354,6 +354,25 @@ LIBVLC_API libvlc_media_t *libvlc_media_new_callbacks(
+                                    libvlc_media_close_cb close_cb,
+                                    void *opaque );
+ 
++/**
++ * Create a media with custom callbacks, and a release callback for \p opaque.
++ *
++ * \p release_cb runs once, when the native media is freed: after the last
++ * reference to it, including those held by players, has been released. It
++ * is the point after which libVLC can no longer call the open, read, seek or
++ * close callbacks for this media. It may be NULL.
++ *
++ * \see libvlc_media_new_callbacks
++ * \see libvlc_media_release
++ */
++LIBVLC_API libvlc_media_t *libvlc_media_new_callbacks_with_release(
++                                   libvlc_media_open_cb open_cb,
++                                   libvlc_media_read_cb read_cb,
++                                   libvlc_media_seek_cb seek_cb,
++                                   libvlc_media_close_cb close_cb,
++                                   void *opaque,
++                                   void (*release_cb)(void *opaque) );
++
+ /**
+  * Create a media as an empty node with a given name.
+  *
+diff --git a/include/vlc_input_item.h b/include/vlc_input_item.h
+index d592ecc..6b513b4 100644
+--- a/include/vlc_input_item.h
++++ b/include/vlc_input_item.h
+@@ -266,6 +266,10 @@ VLC_API int input_item_AddOptions(input_item_t *, int i_options,
+                                   const char *const *ppsz_options,
+                                   unsigned i_flags );
+ VLC_API int input_item_AddOpaque(input_item_t *, const char *, void *);
++/* The release callback runs when the input item itself is freed, which is
++ * when the native media stops being reachable. */
++VLC_API int input_item_AddOpaqueWithRelease(input_item_t *, const char *,
++                                            void *, void (*)(void *));
+ 
+ void input_item_ApplyOptions(vlc_object_t *, input_item_t *);
+ 
+diff --git a/lib/media.c b/lib/media.c
+index b428635..1048d79 100644
+--- a/lib/media.c
++++ b/lib/media.c
+@@ -456,13 +456,24 @@ libvlc_media_t *libvlc_media_new_callbacks(libvlc_media_open_cb open_cb,
+                                            libvlc_media_seek_cb seek_cb,
+                                            libvlc_media_close_cb close_cb,
+                                            void *opaque)
++{
++    return libvlc_media_new_callbacks_with_release(open_cb, read_cb, seek_cb,
++                                                   close_cb, opaque, NULL);
++}
++
++libvlc_media_t *libvlc_media_new_callbacks_with_release(libvlc_media_open_cb open_cb,
++                                                        libvlc_media_read_cb read_cb,
++                                                        libvlc_media_seek_cb seek_cb,
++                                                        libvlc_media_close_cb close_cb,
++                                                        void *opaque,
++                                                        void (*release_cb)(void *opaque))
+ {
+     libvlc_media_t *m = libvlc_media_new_location("imem://");
+     if (unlikely(m == NULL))
+         return NULL;
+ 
+     assert(read_cb != NULL);
+-    input_item_AddOpaque(m->p_input_item, "imem-data", opaque);
++    input_item_AddOpaqueWithRelease(m->p_input_item, "imem-data", opaque, release_cb);
+     input_item_AddOpaque(m->p_input_item, "imem-open", open_cb);
+     input_item_AddOpaque(m->p_input_item, "imem-read", read_cb);
+     input_item_AddOpaque(m->p_input_item, "imem-seek", seek_cb);
+diff --git a/lib/media_player.c b/lib/media_player.c
+index e1d8f15..9d6737b 100644
+--- a/lib/media_player.c
++++ b/lib/media_player.c
+@@ -1142,7 +1142,7 @@ libvlc_media_player_get_media( libvlc_media_player_t *p_mi )
+ 
+ unsigned swiftvlc_libvlc_pip_extensions_version( void )
+ {
+-    return 12;
++    return 13;
+ }
+ 
+ bool
+diff --git a/src/input/item.c b/src/input/item.c
+index f6e154b..5e71310 100644
+--- a/src/input/item.c
++++ b/src/input/item.c
+@@ -43,6 +43,7 @@ struct input_item_opaque
+ {
+     struct input_item_opaque *next;
+     void *value;
++    void (*release)(void *value);
+     char name[1];
+ };
+ 
+@@ -424,6 +425,8 @@ void input_item_Release( input_item_t *p_item )
+     for( input_item_opaque_t *o = p_item->opaques, *next; o != NULL; o = next )
+     {
+         next = o->next;
++        if( o->release != NULL )
++            o->release( o->value );
+         free( o );
+     }
+ 
+@@ -506,7 +509,8 @@ int input_item_AddOptions( input_item_t *p_item, int i_options,
+     return i_ret;
+ }
+ 
+-int input_item_AddOpaque(input_item_t *item, const char *name, void *value)
++int input_item_AddOpaqueWithRelease(input_item_t *item, const char *name,
++                                    void *value, void (*release)(void *value))
+ {
+     assert(name != NULL);
+ 
+@@ -517,6 +521,7 @@ int input_item_AddOpaque(input_item_t *item, const char *name, void *value)
+ 
+     memcpy(entry->name, name, namelen + 1);
+     entry->value = value;
++    entry->release = release;
+ 
+     vlc_mutex_lock(&item->lock);
+     entry->next = item->opaques;
+@@ -525,6 +530,11 @@ int input_item_AddOpaque(input_item_t *item, const char *name, void *value)
+     return VLC_SUCCESS;
+ }
+ 
++int input_item_AddOpaque(input_item_t *item, const char *name, void *value)
++{
++    return input_item_AddOpaqueWithRelease(item, name, value, NULL);
++}
++
+ void input_item_ApplyOptions(vlc_object_t *obj, input_item_t *item)
+ {
+     vlc_mutex_lock(&item->lock);
