@@ -19,6 +19,22 @@ let media = try Media(fileDescriptor: fd)
 ``Media`` is `Sendable`, so it's safe to build on any task and hand to
 the player from the main actor.
 
+## Reading from your own byte source
+
+When libVLC's own file access is a poor fit, implement ``MediaByteStream``
+and hand libVLC the bytes yourself. A network volume that is mounted
+locally is the typical case: libVLC reads it in small blocks with the
+system's read-ahead off, so every block costs a network round trip, while
+a stream of your own can read large blocks.
+
+```swift
+let media = try Media(streamFactory: { try MyFileStream(url: url) })
+try await media.parse()
+```
+
+libVLC does not look for sidecar files such as external subtitles next to
+media it cannot locate by path; attach them with the player's subtitle API.
+
 ## Parsing metadata
 
 Parsing reads the container to discover duration, tracks, and
@@ -81,6 +97,12 @@ try player.addExternalTrack(
 )
 ```
 
+libVLC loads the file in the background; with `select: true` the new
+track replaces the selected track of that type as soon as it appears.
+The file stays attached to the media, so it loads again whenever that
+media plays, and adding the same URL again does not create a second
+copy.
+
 ## Options
 
 libVLC's playback is configured through colon-prefixed option strings:
@@ -142,6 +164,8 @@ timer to display rates over time.
 - ``Media/init(url:httpUserAgent:httpReferrer:)``
 - ``Media/init(path:)``
 - ``Media/init(fileDescriptor:)``
+- ``Media/init(streamFactory:isSeekable:)``
+- ``MediaByteStream``
 
 ### Parsing
 - ``Media/parse(timeout:instance:)``
