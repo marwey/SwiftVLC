@@ -43,6 +43,18 @@ index d592ecc..6b513b4 100644
  
  void input_item_ApplyOptions(vlc_object_t *, input_item_t *);
  
+diff --git a/lib/libvlc.sym b/lib/libvlc.sym
+index a686bba..a0180ea 100644
+--- a/lib/libvlc.sym
++++ b/lib/libvlc.sym
+@@ -118,6 +118,7 @@ libvlc_media_list_retain
+ libvlc_media_list_set_media
+ libvlc_media_list_unlock
+ libvlc_media_new_callbacks
++libvlc_media_new_callbacks_with_release
+ libvlc_media_new_fd
+ libvlc_media_new_location
+ libvlc_media_new_path
 diff --git a/lib/media.c b/lib/media.c
 index b428635..1048d79 100644
 --- a/lib/media.c
