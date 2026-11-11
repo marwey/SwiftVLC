@@ -1,5 +1,4 @@
 @testable import SwiftVLC
-import CLibVLC
 import Foundation
 import Synchronization
 import Testing
@@ -51,6 +50,19 @@ private final class OverreadingStream: MediaByteStream, @unchecked Sendable {
   }
 
   func seek(to offset: UInt64) throws {}
+}
+
+/// Reports when the closure that owns it is released.
+private final class Probe: @unchecked Sendable {
+  private let onDeinit: @Sendable () -> Void
+
+  init(onDeinit: @escaping @Sendable () -> Void) {
+    self.onDeinit = onDeinit
+  }
+
+  deinit {
+    onDeinit()
+  }
 }
 
 extension Integration {
@@ -113,62 +125,6 @@ extension Integration {
     }
 
     @Test
-    func `Registration is removed when the media is released`() throws {
-      let key: UInt
-      do {
-        let media = try Media(streamFactory: { throw POSIXError(.EIO) })
-        key = try #require(media.streamRegistration?.key)
-        #expect(MediaStreamRegistration.factory(forKey: key) != nil)
-      }
-      #expect(MediaStreamRegistration.factory(forKey: key) == nil)
-    }
-
-    @Test
-    func `List keeps the registration of a stream item after the caller drops it`() throws {
-      let list = MediaList()
-      let key: UInt
-      do {
-        let media = try Media(streamFactory: { throw POSIXError(.EIO) })
-        key = try #require(media.streamRegistration?.key)
-        try list.append(media)
-      }
-      #expect(MediaStreamRegistration.factory(forKey: key) != nil)
-      let item = try #require(list.media(at: 0))
-      #expect(item.streamRegistration?.key == key)
-    }
-
-    @Test
-    func `Removing one of two duplicate list entries keeps the registration`() throws {
-      let list = MediaList()
-      let key: UInt
-      do {
-        let media = try Media(streamFactory: { throw POSIXError(.EIO) })
-        key = try #require(media.streamRegistration?.key)
-        try list.append(media)
-        try list.append(media)
-      }
-      try list.remove(at: 0)
-      #expect(MediaStreamRegistration.factory(forKey: key) != nil)
-      let item = try #require(list.media(at: 0))
-      #expect(item.streamRegistration?.key == key)
-    }
-
-    @Test
-    func `Removing the last of two duplicate list entries drops the registration`() throws {
-      let list = MediaList()
-      let key: UInt
-      do {
-        let media = try Media(streamFactory: { throw POSIXError(.EIO) })
-        key = try #require(media.streamRegistration?.key)
-        try list.append(media)
-        try list.append(media)
-      }
-      try list.remove(at: 0)
-      try list.remove(at: 0)
-      #expect(MediaStreamRegistration.factory(forKey: key) == nil)
-    }
-
-    @Test
     func `Read count beyond the requested size fails the parse`() async throws {
       let media = try Media(streamFactory: { OverreadingStream() })
       await #expect(throws: (any Error).self) {
@@ -177,81 +133,55 @@ extension Integration {
     }
 
     @Test
-    func `Wrap of a native pointer keeps the registration after the original is dropped`() throws {
-      let key: UInt
-      let wrapped: Media
+    func `Stream media is stream-backed and URL media is not`() throws {
+      let stream = try Media(streamFactory: { throw POSIXError(.EIO) })
+      let url = try Media(url: TestMedia.testMP4URL)
+      #expect(stream.isStreamBacked)
+      #expect(!url.isStreamBacked)
+    }
+
+    @Test
+    func `The stream factory is released together with the native media`() throws {
+      let freed = Mutex(false)
       do {
-        let media = try Media(streamFactory: { throw POSIXError(.EIO) })
-        key = try #require(media.streamRegistration?.key)
-        libvlc_media_retain(media.pointer)
-        wrapped = Media(retaining: media.pointer)
+        let probe = Probe { freed.withLock { $0 = true } }
+        let media = try Media(streamFactory: {
+          _ = probe
+          throw POSIXError(.EIO)
+        })
+        #expect(media.isStreamBacked)
       }
-      #expect(wrapped.streamRegistration?.key == key)
-      #expect(MediaStreamRegistration.factory(forKey: key) != nil)
+      #expect(freed.withLock { $0 })
     }
 
     @Test
-    func `URL media carries no stream registration`() throws {
-      let media = try Media(url: TestMedia.testMP4URL)
-      #expect(media.streamRegistration == nil)
-    }
-  }
-}
-
-extension Integration {
-  @Suite(.tags(.mainActor))
-  @MainActor struct MediaByteStreamListPlaybackTests {
-    @Test
-    func `Removing a list entry while its item starts keeps the registration`() throws {
+    func `A list keeps the factory of its item until the item is removed`() throws {
+      let freed = Mutex(false)
       let list = MediaList()
-      let listPlayer = MediaListPlayer(instance: TestInstance.shared)
-      listPlayer.mediaPlayer = Player(instance: TestInstance.shared)
-      listPlayer.mediaList = list
-      let key: UInt
       do {
-        let media = try Media(streamFactory: { throw POSIXError(.EIO) })
-        key = try #require(media.streamRegistration?.key)
+        let probe = Probe { freed.withLock { $0 = true } }
+        let media = try Media(streamFactory: {
+          _ = probe
+          throw POSIXError(.EIO)
+        })
         try list.append(media)
       }
-      try listPlayer.play(at: 0)
+      #expect(!freed.withLock { $0 })
       try list.remove(at: 0)
-      #expect(MediaStreamRegistration.factory(forKey: key) != nil)
-      listPlayer.stop()
+      #expect(freed.withLock { $0 })
     }
 
     @Test
-    func `Stopping without a player keeps the registration until the next start`() throws {
+    func `A stream item in a list still parses after the caller dropped its wrapper`() async throws {
+      let url = TestMedia.testMP4URL
       let list = MediaList()
-      let listPlayer = MediaListPlayer(instance: TestInstance.shared)
-      listPlayer.mediaList = list
-      let key: UInt
       do {
-        let media = try Media(streamFactory: { throw POSIXError(.EIO) })
-        key = try #require(media.streamRegistration?.key)
+        let media = try Media(streamFactory: { try CountingFileStream(url: url) })
         try list.append(media)
       }
-      try listPlayer.play(at: 0)
-      try list.remove(at: 0)
-      listPlayer.stop()
-      #expect(MediaStreamRegistration.factory(forKey: key) != nil)
-    }
-
-    @Test
-    func `Starting with play() keeps the registration after the list entry is removed`() throws {
-      let list = MediaList()
-      let listPlayer = MediaListPlayer(instance: TestInstance.shared)
-      listPlayer.mediaPlayer = Player(instance: TestInstance.shared)
-      listPlayer.mediaList = list
-      let key: UInt
-      do {
-        let media = try Media(streamFactory: { throw POSIXError(.EIO) })
-        key = try #require(media.streamRegistration?.key)
-        try list.append(media)
-      }
-      listPlayer.play()
-      try list.remove(at: 0)
-      #expect(MediaStreamRegistration.factory(forKey: key) != nil)
-      listPlayer.stop()
+      let item = try #require(list.media(at: 0))
+      let metadata = try await item.parse()
+      #expect(metadata.title == "Test")
     }
   }
 }

@@ -46,28 +46,22 @@ public protocol MediaByteStream: AnyObject, Sendable {
   func seek(to offset: UInt64) throws
 }
 
-/// Keeps the stream factory of a ``Media`` reachable for libVLC's open
-/// callback without handing libVLC a pointer whose lifetime it cannot see.
-///
-/// libVLC may call the open callback after the Swift ``Media`` wrapper is gone
-/// (the player opens its input asynchronously), and offers no hook to free the
-/// callback's opaque pointer. An integer key looked up in a table turns that
-/// case into a clean "not found" instead of a dangling pointer.
-final class MediaStreamRegistration: Sendable {
+/// Stream factories keyed by the integer libVLC carries as the opaque pointer of
+/// a stream media. A factory is registered when the media is created and removed
+/// by libVLC's release callback, which runs when the native media is freed, so
+/// the open callback always finds it while libVLC can still call it.
+enum MediaStreamFactories {
   typealias Factory = @Sendable () throws -> any MediaByteStream
 
   private struct Table {
     var nextKey: UInt = 1
     var factories: [UInt: Factory] = [:]
-    var addresses: [UInt: UInt] = [:]
   }
 
   private static let table = Mutex(Table())
 
-  let key: UInt
-
-  init(factory: @escaping Factory) {
-    key = Self.table.withLock { table in
+  static func register(_ factory: @escaping Factory) -> UInt {
+    table.withLock { table in
       let key = table.nextKey
       table.nextKey += 1
       table.factories[key] = factory
@@ -75,50 +69,12 @@ final class MediaStreamRegistration: Sendable {
     }
   }
 
-  deinit {
-    let address = Self.table.withLock { table -> UInt? in
-      table.factories[key] = nil
-      return table.addresses.removeValue(forKey: key)
-    }
-    guard let address else { return }
-    // A newer registration may already own this address; only clear a dead entry.
-    Self.registeredMedia.withLock { index in
-      if index[address]?.registration == nil {
-        index[address] = nil
-      }
-    }
+  static func unregister(_ key: UInt) {
+    _ = table.withLock { $0.factories.removeValue(forKey: key) }
   }
 
   static func factory(forKey key: UInt) -> Factory? {
     table.withLock { $0.factories[key] }
-  }
-
-  /// Weak index from a libvlc media to the registration it was created with.
-  /// A wrapper made from a bare native pointer (the player's current media)
-  /// finds the registration here, while the registration is still alive.
-  /// Keyed by the native address, which is not `Sendable` as an `OpaquePointer`.
-  private static let registeredMedia = Mutex<[UInt: WeakRegistration]>([:])
-
-  /// Records that `media` was created with this registration.
-  func attach(to media: OpaquePointer) {
-    let address = UInt(bitPattern: media)
-    Self.table.withLock { $0.addresses[key] = address }
-    Self.registeredMedia.withLock { $0[address] = WeakRegistration(self) }
-  }
-
-  /// The registration of a stream-backed native media, if it is still alive.
-  static func registration(forMedia media: OpaquePointer) -> MediaStreamRegistration? {
-    let address = UInt(bitPattern: media)
-    return registeredMedia.withLock { $0[address]?.registration }
-  }
-}
-
-/// A weak reference, read and written only under the lock of `registeredMedia`.
-private final class WeakRegistration: @unchecked Sendable {
-  weak var registration: MediaStreamRegistration?
-
-  init(_ registration: MediaStreamRegistration) {
-    self.registration = registration
   }
 }
 
@@ -142,7 +98,7 @@ private func mediaStreamOpen(
     let opaque,
     let datap,
     let sizep,
-    let factory = MediaStreamRegistration.factory(forKey: UInt(bitPattern: opaque))
+    let factory = MediaStreamFactories.factory(forKey: UInt(bitPattern: opaque))
   else { return -1 }
   guard let stream = try? factory() else { return -1 }
   datap.pointee = Unmanaged.passRetained(OpenedStream(stream)).toOpaque()
@@ -182,12 +138,23 @@ private func mediaStreamSeek(_ opaque: UnsafeMutableRawPointer?, _ offset: UInt6
   }
 }
 
+private func mediaStreamRelease(_ opaque: UnsafeMutableRawPointer?) {
+  guard let opaque else { return }
+  MediaStreamFactories.unregister(UInt(bitPattern: opaque))
+}
+
 private func mediaStreamClose(_ opaque: UnsafeMutableRawPointer?) {
   guard let opaque else { return }
   Unmanaged<OpenedStream>.fromOpaque(opaque).release()
 }
 
 extension Media {
+  /// Whether this media reads through a ``MediaByteStream``. libVLC keeps the
+  /// locator it was created with, which is `imem://` for callback media.
+  var isStreamBacked: Bool {
+    mrl == "imem://"
+  }
+
   /// Creates media that libVLC reads through a ``MediaByteStream``.
   ///
   /// `streamFactory` runs each time libVLC opens the media (for playback and
@@ -208,19 +175,23 @@ extension Media {
     isSeekable: Bool = true
   )
     throws(VLCError) {
-    let registration = MediaStreamRegistration(factory: streamFactory)
+    guard swiftvlc_libvlc_pip_extensions_version() >= 13 else {
+      throw .mediaCreationFailed(source: "stream: engine lacks the release callback")
+    }
+    let key = MediaStreamFactories.register(streamFactory)
     guard
-      let media = libvlc_media_new_callbacks(
+      let media = libvlc_media_new_callbacks_with_release(
         mediaStreamOpen,
         mediaStreamRead,
         isSeekable ? mediaStreamSeek : nil,
         mediaStreamClose,
-        UnsafeMutableRawPointer(bitPattern: registration.key)
+        UnsafeMutableRawPointer(bitPattern: key),
+        mediaStreamRelease
       )
     else {
+      MediaStreamFactories.unregister(key)
       throw .mediaCreationFailed(source: "stream")
     }
-    registration.attach(to: media)
-    self.init(retaining: media, streamRegistration: registration)
+    self.init(retaining: media)
   }
 }
