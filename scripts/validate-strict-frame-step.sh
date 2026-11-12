@@ -15,7 +15,7 @@ ARCHIVE="$XCFRAMEWORK/macos-arm64_x86_64/libvlc.a"
 PUBLIC_HEADER="$REPO_ROOT/Sources/CLibVLC/include/vlc/libvlc_media_player.h"
 EVENTS_HEADER="$REPO_ROOT/Sources/CLibVLC/include/vlc/libvlc_events.h"
 VERSION_RESOLVER="$SCRIPT_DIR/patches/validation/pip_extension_version.py"
-EXPECTED_VERSION_RESOLVER_SHA="4464830b53da9eaa6c031faff8e111c126c7916211d51bf120bb0a0ef467854e"
+EXPECTED_VERSION_RESOLVER_SHA="a20dcc96d938622491beecd409a6171989c2ae6b1debad57455e64e23cd45487"
 
 actual_version_resolver_sha=$(shasum -a 256 "$VERSION_RESOLVER" | awk '{print $1}')
 if [[ "$actual_version_resolver_sha" != "$EXPECTED_VERSION_RESOLVER_SHA" ]]; then
