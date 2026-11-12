@@ -2933,7 +2933,8 @@ for marker in (
     'if [[ "$EXPECTED_EXTENSION_VERSION" == 9 ||\n'
     '      "$EXPECTED_EXTENSION_VERSION" == 10 ||\n'
     '      "$EXPECTED_EXTENSION_VERSION" == 11 ||\n'
-    '      "$EXPECTED_EXTENSION_VERSION" == 12 ]]; then\n'
+    '      "$EXPECTED_EXTENSION_VERSION" == 12 ||\n'
+    '      "$EXPECTED_EXTENSION_VERSION" == 13 ]]; then\n'
     '  REQUIRE_APPLE_AUDIO_SESSION_LEASES=yes\n'
     'fi',
     'if [[ "$EXPECTED_EXTENSION_VERSION" -ge 9 &&\n'
