@@ -226,7 +226,7 @@ public final class Media: Sendable {
         // Media read through a `MediaByteStream` has no path libVLC can classify as
         // local or network, so its parse request is skipped unless forced.
         var flagBits = libvlc_media_parse_local.rawValue | libvlc_media_parse_network.rawValue
-        if streamRegistration != nil {
+        if isStreamBacked {
           flagBits |= libvlc_media_parse_forced.rawValue
         }
         let flags = libvlc_media_parse_flag_t(rawValue: flagBits)
@@ -344,13 +344,9 @@ public final class Media: Sendable {
   ///
   /// The caller must have already called `libvlc_media_retain` or obtained
   /// the pointer from an API that returns a retained reference.
-  /// `Media` will call `libvlc_media_release` on deinit. A stream-backed
-  /// media keeps its stream factory registered through the new wrapper.
+  /// `Media` will call `libvlc_media_release` on deinit.
   convenience init(retaining ptr: OpaquePointer) {
-    self.init(
-      retaining: ptr,
-      streamRegistration: MediaStreamRegistration.registration(forMedia: ptr)
-    )
+    self.init(retaining: ptr, streamRegistration: nil)
   }
 
   /// Wraps a retained pointer of media created from a ``MediaByteStream``,
