@@ -167,5 +167,18 @@ extension Integration {
       #expect(player.currentMedia?.streamRegistration?.key == key)
       #expect(MediaStreamRegistration.factory(forKey: key) != nil)
     }
+
+    @Test
+    func `A media list player refuses stream media`() throws {
+      let listPlayer = MediaListPlayer(instance: TestInstance.shared)
+      listPlayer.mediaList = MediaList()
+      let media = try Media(streamFactory: { throw POSIXError(.EIO) })
+      #expect {
+        try listPlayer.play(media)
+      } throws: { error in
+        guard case .invalidInput = error as? VLCError else { return false }
+        return true
+      }
+    }
   }
 }
