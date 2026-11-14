@@ -15,12 +15,6 @@ import CLibVLC
 /// Pair with a ``MediaListPlayer`` to play the items in sequence.
 public final class MediaList: Sendable {
   nonisolated(unsafe) let pointer: OpaquePointer // libvlc_media_list_t*
-  /// Stream factories of stream-backed items, keyed by their libvlc media,
-  /// with the number of list entries that share that media. The list keeps
-  /// them alive because libVLC holds the native items after the caller drops
-  /// its `Media`. Guarded by the libVLC list lock.
-  nonisolated(unsafe) var streamRegistrations:
-    [OpaquePointer: (registration: MediaStreamRegistration, occurrences: Int)] = [:]
 
   /// Creates an empty media list.
   public init() {
@@ -62,20 +56,24 @@ public final class MediaList: Sendable {
   }
 
   /// Appends a media item to the end of the list.
-  /// - Throws: `VLCError.operationFailed` if the list is read-only or the operation fails.
+  /// - Throws: ``VLCError/invalidInput(_:)`` if `media` reads through a
+  ///   ``MediaByteStream``, or `VLCError.operationFailed` if the list is
+  ///   read-only or the operation fails.
   public func append(_ media: borrowing Media) throws(VLCError) {
+    try rejectStreamMedia(media)
     libvlc_media_list_lock(pointer)
     defer { libvlc_media_list_unlock(pointer) }
     guard libvlc_media_list_add_media(pointer, media.pointer) == 0 else {
       throw .operationFailed("Append media to list")
     }
-    keepStreamRegistration(of: media)
   }
 
   /// Inserts a media item at the specified index.
-  /// - Throws: ``VLCError/invalidInput(_:)`` if the index is out of range,
-  ///   or ``VLCError/operationFailed(_:)`` if the list is read-only.
+  /// - Throws: ``VLCError/invalidInput(_:)`` if the index is out of range or
+  ///   `media` reads through a ``MediaByteStream``, or
+  ///   ``VLCError/operationFailed(_:)`` if the list is read-only.
   public func insert(_ media: borrowing Media, at index: Int) throws(VLCError) {
+    try rejectStreamMedia(media)
     libvlc_media_list_lock(pointer)
     defer { libvlc_media_list_unlock(pointer) }
     let count = Int(libvlc_media_list_count(pointer))
@@ -86,23 +84,14 @@ public final class MediaList: Sendable {
     guard libvlc_media_list_insert_media(pointer, media.pointer, index) == 0 else {
       throw .operationFailed("Insert media at index \(index)")
     }
-    keepStreamRegistration(of: media)
   }
 
-  /// Counts one more list entry of a stream-backed item. Call with the libVLC lock held.
-  private func keepStreamRegistration(of media: borrowing Media) {
-    guard let registration = media.streamRegistration else { return }
-    streamRegistrations[media.pointer, default: (registration, 0)].occurrences += 1
-  }
-
-  /// Drops one list entry of an item, and its registration with the last one.
-  /// Call with the libVLC lock held.
-  private func releaseStreamRegistration(of item: OpaquePointer) {
-    guard let occurrences = streamRegistrations[item]?.occurrences else { return }
-    if occurrences > 1 {
-      streamRegistrations[item]?.occurrences = occurrences - 1
-    } else {
-      streamRegistrations[item] = nil
+  /// Stream media is played with a ``Player``, which keeps its ``Media`` and so
+  /// its stream factory alive. A list hands items to libVLC without the Swift
+  /// wrapper, and libVLC has no hook to tell when it stops using them.
+  private func rejectStreamMedia(_ media: borrowing Media) throws(VLCError) {
+    guard !media.isStreamBacked else {
+      throw .invalidInput("stream media cannot be added to a MediaList; play it with a Player")
     }
   }
 
@@ -117,17 +106,8 @@ public final class MediaList: Sendable {
       throw .invalidInput("index must be in 0..<\(count)")
     }
     let index = try checkedInt32(index, parameter: "index")
-    let item = libvlc_media_list_item_at_index(pointer, index)
-    defer {
-      if let item {
-        libvlc_media_release(item)
-      }
-    }
     guard libvlc_media_list_remove_index(pointer, index) == 0 else {
       throw .operationFailed("Remove media at index \(index)")
-    }
-    if let item {
-      releaseStreamRegistration(of: item)
     }
   }
 

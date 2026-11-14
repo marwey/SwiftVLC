@@ -504,7 +504,7 @@ extension Player {
     sourcePlaybackGeneration: UInt64? = nil,
     sourceNativeHandleGeneration: UInt64? = nil
   ) -> Bool {
-    let media = libvlc_media_player_get_media(pointer).map(Media.init(retaining:))
+    let media = currentMediaWrapping(libvlc_media_player_get_media(pointer))
     return withMutation(keyPath: \.currentMedia) {
       guard
         sourcedEventIdentityIsCurrent(
@@ -515,6 +515,18 @@ extension Player {
       currentMediaStorage = media
       return true
     }
+  }
+
+  /// Wraps the player's native media, reusing the current wrapper when the
+  /// native media is unchanged. A stream media's factory lives with the wrapper
+  /// the caller created, so a fresh wrapper would lose it.
+  private func currentMediaWrapping(_ native: OpaquePointer?) -> Media? {
+    guard let native else { return nil }
+    if let current = currentMediaStorage, current.pointer == native {
+      libvlc_media_release(native)
+      return current
+    }
+    return Media(retaining: native)
   }
 
   func _handleEventForTesting(_ event: PlayerEvent) {

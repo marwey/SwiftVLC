@@ -59,7 +59,6 @@ final class MediaStreamRegistration: Sendable {
   private struct Table {
     var nextKey: UInt = 1
     var factories: [UInt: Factory] = [:]
-    var addresses: [UInt: UInt] = [:]
   }
 
   private static let table = Mutex(Table())
@@ -76,49 +75,11 @@ final class MediaStreamRegistration: Sendable {
   }
 
   deinit {
-    let address = Self.table.withLock { table -> UInt? in
-      table.factories[key] = nil
-      return table.addresses.removeValue(forKey: key)
-    }
-    guard let address else { return }
-    // A newer registration may already own this address; only clear a dead entry.
-    Self.registeredMedia.withLock { index in
-      if index[address]?.registration == nil {
-        index[address] = nil
-      }
-    }
+    _ = Self.table.withLock { $0.factories.removeValue(forKey: key) }
   }
 
   static func factory(forKey key: UInt) -> Factory? {
     table.withLock { $0.factories[key] }
-  }
-
-  /// Weak index from a libvlc media to the registration it was created with.
-  /// A wrapper made from a bare native pointer (the player's current media)
-  /// finds the registration here, while the registration is still alive.
-  /// Keyed by the native address, which is not `Sendable` as an `OpaquePointer`.
-  private static let registeredMedia = Mutex<[UInt: WeakRegistration]>([:])
-
-  /// Records that `media` was created with this registration.
-  func attach(to media: OpaquePointer) {
-    let address = UInt(bitPattern: media)
-    Self.table.withLock { $0.addresses[key] = address }
-    Self.registeredMedia.withLock { $0[address] = WeakRegistration(self) }
-  }
-
-  /// The registration of a stream-backed native media, if it is still alive.
-  static func registration(forMedia media: OpaquePointer) -> MediaStreamRegistration? {
-    let address = UInt(bitPattern: media)
-    return registeredMedia.withLock { $0[address]?.registration }
-  }
-}
-
-/// A weak reference, read and written only under the lock of `registeredMedia`.
-private final class WeakRegistration: @unchecked Sendable {
-  weak var registration: MediaStreamRegistration?
-
-  init(_ registration: MediaStreamRegistration) {
-    self.registration = registration
   }
 }
 
@@ -188,6 +149,12 @@ private func mediaStreamClose(_ opaque: UnsafeMutableRawPointer?) {
 }
 
 extension Media {
+  /// Whether this media reads through a ``MediaByteStream``. libVLC keeps the
+  /// locator it was created with, which is `imem://` for callback media.
+  var isStreamBacked: Bool {
+    mrl == "imem://"
+  }
+
   /// Creates media that libVLC reads through a ``MediaByteStream``.
   ///
   /// `streamFactory` runs each time libVLC opens the media (for playback and
@@ -220,7 +187,6 @@ extension Media {
     else {
       throw .mediaCreationFailed(source: "stream")
     }
-    registration.attach(to: media)
     self.init(retaining: media, streamRegistration: registration)
   }
 }
