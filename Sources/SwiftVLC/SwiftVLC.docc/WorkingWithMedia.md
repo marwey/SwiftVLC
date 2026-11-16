@@ -35,6 +35,12 @@ try await media.parse()
 libVLC does not look for sidecar files such as external subtitles next to
 media it cannot locate by path; attach them with the player's subtitle API.
 
+Play stream media directly with a ``Player``. libVLC finds the factory only
+while the ``Media`` is alive, held by you or as the player's current media,
+and it gives no signal when it stops using it. ``MediaList`` and
+``MediaListPlayer`` therefore refuse stream media with
+``VLCError/invalidInput(_:)``.
+
 ## Parsing metadata
 
 Parsing reads the container to discover duration, tracks, and

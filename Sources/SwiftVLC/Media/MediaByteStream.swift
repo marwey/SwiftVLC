@@ -149,10 +149,11 @@ private func mediaStreamClose(_ opaque: UnsafeMutableRawPointer?) {
 }
 
 extension Media {
-  /// Whether this media reads through a ``MediaByteStream``. libVLC keeps the
-  /// locator it was created with, which is `imem://` for callback media.
+  /// Whether this media reads through a ``MediaByteStream``. A wrapper rebuilt
+  /// from the native media has no registration, but libVLC keeps the locator
+  /// it was created with, which is `imem://` for callback media.
   var isStreamBacked: Bool {
-    mrl == "imem://"
+    streamRegistration != nil || mrl == "imem://"
   }
 
   /// Creates media that libVLC reads through a ``MediaByteStream``.
@@ -163,6 +164,13 @@ extension Media {
   ///
   /// libVLC does not look for sidecar files (external subtitles) next to a
   /// media it cannot locate by path. Add them with the player's subtitle API.
+  ///
+  /// Play stream media directly with a ``Player``. libVLC can only find
+  /// `streamFactory` while this `Media` is alive, either held by you or as the
+  /// player's ``Player/currentMedia``, and it gives no signal when it stops
+  /// using the media. ``MediaList`` and ``MediaListPlayer`` hand items to libVLC
+  /// without keeping them alive, so they refuse stream media with
+  /// ``VLCError/invalidInput(_:)``.
   ///
   /// - Parameters:
   ///   - streamFactory: Opens the byte source.

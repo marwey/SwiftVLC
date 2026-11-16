@@ -141,11 +141,27 @@ extension Integration {
     }
 
     @Test
+    func `A wrapper rebuilt from a stream's native media is still recognised`() throws {
+      let media = try Media(streamFactory: { throw POSIXError(.EIO) })
+      libvlc_media_retain(media.pointer)
+      let rebuilt = Media(retaining: media.pointer)
+      #expect(rebuilt.streamRegistration == nil)
+      #expect(rebuilt.mrl == "imem://")
+      #expect(rebuilt.isStreamBacked)
+    }
+
+    @Test
     func `A media list refuses stream media`() throws {
       let list = MediaList()
       let media = try Media(streamFactory: { throw POSIXError(.EIO) })
-      #expect(throws: VLCError.self) { try list.append(media) }
-      #expect(throws: VLCError.self) { try list.insert(media, at: 0) }
+      for attempt in [{ try list.append(media) }, { try list.insert(media, at: 0) }] as [() throws -> Void] {
+        #expect {
+          try attempt()
+        } throws: { error in
+          guard case .invalidInput = error as? VLCError else { return false }
+          return true
+        }
+      }
       #expect(list.isEmpty)
     }
   }
