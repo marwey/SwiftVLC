@@ -29,6 +29,12 @@ enum TestMedia {
     url(for: "sparse", ext: "mp4")
   }
 
+  /// 6s 64x48 test pattern, video-only, sample aspect ratio 817:816 — a ratio
+  /// with no integer square-pixel size (issue 250).
+  static var inexactSARURL: URL {
+    url(for: "inexact-sar", ext: "mp4")
+  }
+
   /// Minimal SRT subtitle file.
   static var subtitleURL: URL {
     url(for: "test", ext: "srt")
@@ -54,8 +60,20 @@ enum TestMedia {
     url(for: "positioned", ext: "ttml")
   }
 
-  private static func url(for name: String, ext: String) -> URL {
-    if let url = Bundle.module.url(forResource: name, withExtension: ext, subdirectory: "Fixtures") {
+  /// 10s: tiny video, eng/ara AAC, and eng/ara SRT tracks with stable ids.
+  static var multitrackMKVURL: URL {
+    url(for: "multitrack", ext: "mkv", in: "tracks")
+  }
+
+  /// 10s HLS: tiny video variant, eng/ara audio renditions, and an English
+  /// WebVTT rendition, all with unstable adaptive ids.
+  static var multitrackHLSURL: URL {
+    url(for: "master", ext: "m3u8", in: "tracks/hls")
+  }
+
+  private static func url(for name: String, ext: String, in directory: String? = nil) -> URL {
+    let subdirectory = ["Fixtures", directory].compactMap(\.self).joined(separator: "/")
+    if let url = Bundle.module.url(forResource: name, withExtension: ext, subdirectory: subdirectory) {
       return url
     }
     // Fallback: resolve relative to source file
@@ -63,7 +81,7 @@ enum TestMedia {
     let fixturesDir = thisFile
       .deletingLastPathComponent()
       .deletingLastPathComponent()
-      .appendingPathComponent("Fixtures")
+      .appendingPathComponent(subdirectory)
     return fixturesDir.appendingPathComponent("\(name).\(ext)")
   }
 }

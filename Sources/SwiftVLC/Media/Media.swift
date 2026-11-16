@@ -100,6 +100,8 @@ public struct MediaSlave: Sendable, Hashable {
 public final class Media: Sendable {
   nonisolated(unsafe) let pointer: OpaquePointer // libvlc_media_t*
   let thumbnailCoordinator: ThumbnailCoordinator
+  /// Set for media created from a ``MediaByteStream``; unregisters the stream factory on deinit.
+  let streamRegistration: MediaStreamRegistration?
 
   /// Creates media from a URL.
   ///
@@ -119,6 +121,7 @@ public final class Media: Sendable {
     }
     pointer = media
     thumbnailCoordinator = ThumbnailCoordinator.shared(for: media)
+    streamRegistration = nil
   }
 
   /// Creates media from a URL with per-media HTTP identity headers.
@@ -153,12 +156,19 @@ public final class Media: Sendable {
     }
     pointer = media
     thumbnailCoordinator = ThumbnailCoordinator.shared(for: media)
+    streamRegistration = nil
   }
 
   /// Parses the media's metadata and track list, awaiting the result.
   ///
   /// Reads both local and network sources. Cancelling the enclosing
   /// `Task` aborts the parse promptly, leaving the media untouched.
+  ///
+  /// Media that is already parsed returns its metadata without another
+  /// request. That includes media a ``Player`` has opened, which libVLC marks
+  /// parsed once playback has read it. libVLC runs one parse per media at a
+  /// time: a second call made while one is still in flight is not joined to
+  /// it and throws ``VLCError/parseFailed(reason:)``.
   ///
   /// - Parameters:
   ///   - timeout: Maximum time to wait before giving up.
@@ -175,6 +185,11 @@ public final class Media: Sendable {
     async throws(VLCError) -> Metadata {
     let timeoutMs = try timeout.checkedNonnegativeInt32Milliseconds(parameter: "timeout")
     let media = pointer
+    // libVLC rejects a request for media whose status is already `done`, and
+    // reports nothing further for it, so the result has to come from here.
+    if libvlc_media_get_parsed_status(media) == libvlc_media_parsed_status_done {
+      return Metadata(from: media)
+    }
     let em = libvlc_media_event_manager(media)!
     let instancePtr = instance.pointer
     let operationRef = ParseOperationRef()
@@ -219,9 +234,13 @@ public final class Media: Sendable {
           return
         }
 
-        let flags = libvlc_media_parse_flag_t(
-          rawValue: libvlc_media_parse_local.rawValue | libvlc_media_parse_network.rawValue
-        )
+        // Media read through a `MediaByteStream` has no path libVLC can classify as
+        // local or network, so its parse request is skipped unless forced.
+        var flagBits = libvlc_media_parse_local.rawValue | libvlc_media_parse_network.rawValue
+        if isStreamBacked {
+          flagBits |= libvlc_media_parse_forced.rawValue
+        }
+        let flags = libvlc_media_parse_flag_t(rawValue: flagBits)
         let rc = libvlc_media_parse_request(instancePtr, media, flags, timeoutMs)
         if rc != 0 {
           operation.finishWithoutRequest(
@@ -337,9 +356,16 @@ public final class Media: Sendable {
   /// The caller must have already called `libvlc_media_retain` or obtained
   /// the pointer from an API that returns a retained reference.
   /// `Media` will call `libvlc_media_release` on deinit.
-  init(retaining ptr: OpaquePointer) {
+  convenience init(retaining ptr: OpaquePointer) {
+    self.init(retaining: ptr, streamRegistration: nil)
+  }
+
+  /// Wraps a retained pointer of media created from a ``MediaByteStream``,
+  /// keeping the stream factory registered for as long as this wrapper lives.
+  init(retaining ptr: OpaquePointer, streamRegistration: MediaStreamRegistration?) {
     pointer = ptr
     thumbnailCoordinator = ThumbnailCoordinator.shared(for: ptr)
+    self.streamRegistration = streamRegistration
   }
 
   /// Creates media from an open file descriptor.
@@ -355,6 +381,7 @@ public final class Media: Sendable {
     }
     pointer = media
     thumbnailCoordinator = ThumbnailCoordinator.shared(for: media)
+    streamRegistration = nil
   }
 
   /// Applies a libVLC option to this media before playback starts.

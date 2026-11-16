@@ -56,8 +56,11 @@ public final class MediaList: Sendable {
   }
 
   /// Appends a media item to the end of the list.
-  /// - Throws: `VLCError.operationFailed` if the list is read-only or the operation fails.
+  /// - Throws: ``VLCError/invalidInput(_:)`` if `media` reads through a
+  ///   ``MediaByteStream``, or `VLCError.operationFailed` if the list is
+  ///   read-only or the operation fails.
   public func append(_ media: borrowing Media) throws(VLCError) {
+    try rejectStreamMedia(media)
     libvlc_media_list_lock(pointer)
     defer { libvlc_media_list_unlock(pointer) }
     guard libvlc_media_list_add_media(pointer, media.pointer) == 0 else {
@@ -66,9 +69,11 @@ public final class MediaList: Sendable {
   }
 
   /// Inserts a media item at the specified index.
-  /// - Throws: ``VLCError/invalidInput(_:)`` if the index is out of range,
-  ///   or ``VLCError/operationFailed(_:)`` if the list is read-only.
+  /// - Throws: ``VLCError/invalidInput(_:)`` if the index is out of range or
+  ///   `media` reads through a ``MediaByteStream``, or
+  ///   ``VLCError/operationFailed(_:)`` if the list is read-only.
   public func insert(_ media: borrowing Media, at index: Int) throws(VLCError) {
+    try rejectStreamMedia(media)
     libvlc_media_list_lock(pointer)
     defer { libvlc_media_list_unlock(pointer) }
     let count = Int(libvlc_media_list_count(pointer))
@@ -78,6 +83,15 @@ public final class MediaList: Sendable {
     let index = try checkedInt32(index, parameter: "index")
     guard libvlc_media_list_insert_media(pointer, media.pointer, index) == 0 else {
       throw .operationFailed("Insert media at index \(index)")
+    }
+  }
+
+  /// Stream media is played with a ``Player``, which keeps its ``Media`` and so
+  /// its stream factory alive. A list hands items to libVLC without the Swift
+  /// wrapper, and libVLC has no hook to tell when it stops using them.
+  private func rejectStreamMedia(_ media: borrowing Media) throws(VLCError) {
+    guard !media.isStreamBacked else {
+      throw .invalidInput("stream media cannot be added to a MediaList; play it with a Player")
     }
   }
 

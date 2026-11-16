@@ -60,9 +60,22 @@ public final class VLCInstance: Sendable {
   /// ``init(arguments:applicationName:httpUserAgent:appleAudioSessionPolicy:)``
   /// if you need that mode
   /// (embedded contexts with tight memory budgets, CLI tools).
+  ///
+  /// `--sout-renderer-show-perf-warning=0` stops libVLC from asking a
+  /// "Performance warning" question before it transcodes for a renderer
+  /// (a Chromecast or DLNA device that cannot play the video codec, or any
+  /// cast with a subtitle track selected). libVLC treats an unanswered or
+  /// declined question as a refusal it cannot recover from: the renderer is
+  /// never loaded while the player keeps reporting `.playing`. With the
+  /// question off, the conversion simply starts. An instance created from a
+  /// custom argument list that omits this option gets the question back and
+  /// must answer it through ``DialogHandler``; pass
+  /// `--sout-renderer-show-perf-warning=1` after these defaults to opt in
+  /// deliberately.
   public static let defaultArguments: [String] = [
     "--no-video-title-show",
-    "--no-snapshot-preview"
+    "--no-snapshot-preview",
+    "--sout-renderer-show-perf-warning=0"
   ]
 
   nonisolated(unsafe) let pointer: OpaquePointer // libvlc_instance_t*
@@ -80,14 +93,8 @@ public final class VLCInstance: Sendable {
   var usesPiPSafeDarwinDisplay: Bool {
     #if os(macOS)
     guard !Self.containsOption(named: "no-video", in: arguments) else { return false }
-    let forcesLegacyDisplay = Self.containsOption(
-      named: "force-darwin-legacy-display",
-      in: arguments
-    )
-    guard let vout = Self.lastOptionValue(named: "vout", in: arguments) else {
-      return !forcesLegacyDisplay
-    }
-    return ["macosx", "vout_macosx"].contains(vout)
+    return usesSampleBufferDisplay
+      || ["macosx", "vout_macosx"].contains(Self.lastOptionValue(named: "vout", in: arguments))
     #elseif os(iOS)
     // iOS native PiP only attaches when libVLC selects its Apple
     // sample-buffer video output (`samplebufferdisplay`, the default).
@@ -106,6 +113,19 @@ public final class VLCInstance: Sendable {
     true
     #endif
   }
+
+  #if os(macOS)
+  /// Whether video renders through libVLC's default `samplebufferdisplay`,
+  /// whose layer survives its drawable moving between windows. The legacy
+  /// OpenGL displays lose their context's surface instead.
+  var usesSampleBufferDisplay: Bool {
+    guard !Self.containsOption(named: "force-darwin-legacy-display", in: arguments) else {
+      return false
+    }
+    let vout = Self.lastOptionValue(named: "vout", in: arguments)
+    return vout == nil || vout == "samplebufferdisplay"
+  }
+  #endif
 
   var supportsDynamicDeinterlaceChanges: Bool {
     #if os(macOS)
@@ -341,7 +361,6 @@ public final class VLCInstance: Sendable {
       parameter: "arguments.count"
     )
 
-    // Convert Swift strings to C strings for libvlc_new.
     // strdup allocates; freed in defer after libvlc_new copies them.
     let cArgs = resolvedArguments.map { strdup($0) }
     defer { cArgs.forEach { Darwin.free($0) } }

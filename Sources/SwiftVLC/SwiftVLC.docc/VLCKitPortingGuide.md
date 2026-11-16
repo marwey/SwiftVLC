@@ -6,10 +6,10 @@ replacements.
 ## Overview
 
 <doc:ComparisonWithVLCKit> covers *why* the two libraries differ; this
-page covers *how* to move code between them. Each section below takes
-one idiom that VLCKit code leans on and shows the SwiftVLC construct
-that replaces it — including the places where SwiftVLC deliberately
-behaves differently and a mechanical translation would be wrong.
+page covers *how* to move code between them. Each section takes one idiom
+VLCKit code leans on and shows its SwiftVLC replacement — including the
+places where SwiftVLC deliberately behaves differently and a mechanical
+translation would be wrong.
 
 | VLCKit idiom | SwiftVLC replacement |
 |---|---|
@@ -56,17 +56,15 @@ optimistically and let the engine ignore them.
 SwiftVLC's strict seeks refuse instead of pretending.
 ``Player/seek(to:fast:)-(Duration,_)`` and
 ``Player/seek(to:fast:)-(PlaybackPosition,_)`` throw
-``VLCError/invalidState(_:)`` when the current media is not seekable
-(and ``VLCError/invalidInput(_:)`` for out-of-range targets), so a
-seek that cannot happen is visible at the call site. Check
-``Player/isSeekable`` before exposing scrub controls.
+``VLCError/invalidState(_:)`` when the media is not seekable, and
+``VLCError/invalidInput(_:)`` for out-of-range targets, so a seek that
+cannot happen is visible at the call site. Check ``Player/isSeekable``
+before exposing scrub controls.
 
-For code that genuinely wants VLCKit's old contract — live and
-timeshift content where seekability flickers and a failed seek is
-routine, not exceptional — use the lenient pair instead:
-``Player/seek(toPosition:fast:)`` and ``Player/jump(by:)``. They
-return `false` instead of throwing, which makes them the drop-in
-replacement for an unconditional `position` write:
+Where you genuinely want VLCKit's old contract — live and timeshift
+content where seekability flickers and a failed seek is routine — use the
+lenient pair, ``Player/seek(toPosition:fast:)`` and ``Player/jump(by:)``.
+They return `false` instead of throwing:
 
 ```swift
 // VLCKit: fire and forget
@@ -108,10 +106,8 @@ generation; it is not paired with a fabricated `stopped` event and does not
 promise that output-safe stop was observed. The current-player observable
 state continues to describe the committed successor.
 
-One suppression to know about: ``PlayerEvent/endReached-enum.case`` is not
-emitted while a ``MediaListPlayer`` drives the player, because list
-advancement stops the handle between items — use the list player's
-own events to track item boundaries there.
+``PlayerEvent/endReached-enum.case`` is not emitted while a
+``MediaListPlayer`` drives the player; see <doc:MediaPlaylists>.
 
 ## Mid-playback renderer changes
 
@@ -120,19 +116,19 @@ restart internally. libVLC 4 applies a renderer only before a native
 handle's first play, so the naive port — stop, set renderer, play —
 forces you to rebuild drawable attachment and observation by hand.
 
-``Player/recastAndWaitForOutcome(to:)`` is the supported translation when the
-terminal result matters: it switches the
-active renderer mid-playback on the *same* ``Player``, replacing the
-native handle under the hood while drawable attachment, observation,
-and app-side Now-Playing wiring all survive. Pass `nil` to return to
-local playback. The call awaits the new session and resumes from the
-captured position once the new session reports seekability.
+``Player/recastAndWaitForOutcome(to:)`` is the translation: it switches
+the active renderer mid-playback on the *same* ``Player``, replacing the
+native handle underneath while drawable attachment, observation, and
+app-side Now-Playing wiring all survive. Pass `nil` to return to local
+playback. The call awaits the new session and resumes from the captured
+position once that session reports seekability.
 
-It is not entirely transparent — its documentation lists what resets
-with the new session: A-B loop bounds, track/chapter/title selection,
-and DVB program selection (elementary-stream and program ids can
-differ per session, so re-selection is app policy), and system
-Picture-in-Picture backed by the replaced handle stops.
+It is not fully transparent. Its symbol documentation lists what resets
+with the new session: A-B loop bounds, track, chapter, and title
+selection, and DVB program selection — elementary-stream and program ids
+can differ per session, so re-selection is app policy — and system
+Picture-in-Picture backed by the replaced handle stops. See
+<doc:DiscoveryAndCasting> for the outcome semantics.
 
 ## Index-based track selection
 
@@ -140,9 +136,9 @@ VLCKit selected tracks by array index, with `-1` as the "off"
 sentinel (`currentAudioTrackIndex = -1`). Indexes are positional and
 shift as tracks appear, which made live-stream track UIs fragile.
 
-SwiftVLC selects by stable identity. Each ``Track`` carries a
-`String` `id` that is stable for the session, and selection is an
-optional property write:
+SwiftVLC selects by identity. Each ``Track`` carries a `String` `id`
+that names one track of the current playback session, and selection is
+an optional property write:
 
 ```swift
 // VLCKit
@@ -155,7 +151,19 @@ player.selectedSubtitleTrack = subtitleTracks[0] // on, by identity
 
 ``Player/selectedAudioTrack`` and ``Player/selectedSubtitleTrack``
 read back the engine's actual selection, and setting either to `nil`
-deselects — there is no sentinel value to remember.
+deselects — there is no sentinel value to remember. A write holds for
+the rest of the playback session: tracks the stream adds later do not
+override it.
+
+Container formats (MP4, MKV, MPEG-TS) and external files have ids that
+stay the same for as long as the media plays. Adaptive streams (HLS,
+DASH) do not: libVLC numbers their tracks per session
+(`"audio/auto/4"`), and the demuxer recreates a selected track under a
+new id after a seek or a selection change. ``Track/isIDStable`` tells the
+two apart. Selecting a ``Track`` whose unstable id has gone stale still
+works — SwiftVLC resolves it to the current track with the same type,
+language, name, and codec — but to recognize the same rendition across
+list refreshes, compare those fields instead of `id`.
 
 ## Rebuffering spinners
 
@@ -214,10 +222,10 @@ let metadata = try await media.parse()
 try player.play(media)
 ```
 
-``Media/parse(timeout:instance:)`` awaits the full result — metadata
-plus track list — and honors task cancellation, so there is nothing
-to observe afterwards for file-backed media: everything the engine
-will know is in the returned ``Metadata``.
+``Media/parse(timeout:instance:)`` awaits the complete result and honours
+task cancellation, so for file-backed media there is nothing left to
+observe afterwards: the returned ``Metadata`` holds everything the engine
+will know, and ``Media/tracks()`` returns the discovered tracks.
 
 The limitation to state plainly: live ICY-style in-stream metadata —
 the now-playing titles that internet radio streams update
@@ -252,10 +260,10 @@ for await state in player.stateTransitions {
 }
 ```
 
-See <doc:ConcurrencyModel> for the full isolation map, including the
-one rule the old proxies never had to follow: the `filter` closure
-of ``Player/events(policy:filter:)`` runs on libVLC's event thread
-and must never block on the main actor.
+There is one rule the old proxies never had to follow: the `filter`
+closure of ``Player/events(policy:filter:)`` runs on libVLC's event
+thread and must never block on the main actor. See
+<doc:ConcurrencyModel>.
 
 ## The 0-200 volume scale
 
@@ -263,10 +271,10 @@ VLCKit's `audio.volume` was an integer in `0...200`, where `100`
 meant 100% (0 dB) and values above it were software gain.
 
 SwiftVLC's ``Volume`` is the same scale divided by 100: a `Float` in
-`0.0 ... 2.0`, where `1.0` is 100% — unity gain, 0 dB — and the
-ceiling (`2.0`) is the same +6 dB software boost VLCKit's `200`
-gave you. Out-of-range values clamp on
-construction, so the translation is mechanical:
+`0.0 ... 2.0`, where ``Volume/unity`` (`1.0`) is 100% — 0 dB — and
+``Volume/max`` (`2.0`) is the same +6 dB software boost VLCKit's `200`
+gave you. Out-of-range values clamp on construction, so the translation
+is mechanical:
 
 ```swift
 // VLCKit
@@ -316,8 +324,8 @@ The awaitable forms are the port targets:
 ## Aspect ratio and fill
 
 VLCKit drove the picture shape through `videoAspectRatio` (a `"w:h"`
-C string) and `videoCropGeometry`. SwiftVLC replaces both with the
-typed ``Player/aspectRatio`` / ``AspectRatio``:
+C string) and `videoCropGeometry`. SwiftVLC replaces both with the typed
+``Player/aspectRatio``, whose semantics match VLCKit/libVLC 3:
 
 | VLCKit | SwiftVLC |
 | --- | --- |
@@ -325,20 +333,8 @@ typed ``Player/aspectRatio`` / ``AspectRatio``:
 | `videoAspectRatio = "16:9"` (force shape) | ``AspectRatio/ratio(_:_:)`` |
 | Fill/cover the view | ``AspectRatio/fill`` |
 
-The semantics match VLCKit/libVLC 3:
-
-- ``AspectRatio/default`` keeps the source aspect, fitted inside the
-  view with letterbox/pillarbox bars.
-- ``AspectRatio/ratio(_:_:)`` forces the display aspect, **stretching**
-  the source to that shape (so `.ratio(4, 3)` on a 2.40:1 source shows a
-  distorted 4:3 picture), then fits the shaped picture in the view.
-- ``AspectRatio/fill`` covers the view, preserving the source aspect and
-  cropping the overflow — no distortion.
-
-The mode is a `Player` property: it survives the native-handle swaps that
-back ``Player/recast(to:)`` and a stopped drawable-hosted restart, and it
-tracks live drawable-size changes (rotation, split-screen) — set it once
-and it sticks.
+`.ratio(_:_:)` stretches rather than crops — `.ratio(4, 3)` on a 2.40:1
+source shows a distorted 4:3 picture. See <doc:DisplayingVideo>.
 
 ## Subtitle auto-selection
 
@@ -364,8 +360,8 @@ Two ways to get "off unless the user asks":
   This suppresses language/index/file-driven selection, but a stream that
   flags a *forced* or *default* subtitle can still auto-select it.
 
-- **Deselect per media (authoritative).** When the subtitle tracks first
-  appear for a media, clear the selection unless the user has chosen one:
+- **Deselect per playback (authoritative).** When the subtitle tracks
+  appear, clear the selection unless the user has chosen one:
 
   ```swift
   for await event in player.events {
@@ -375,8 +371,12 @@ Two ways to get "off unless the user asks":
   }
   ```
 
-  This is the only way to guarantee "off" regardless of stream flags;
-  set ``Player/selectedSubtitleTrack`` again when the user opts in.
+  This is the only way to guarantee "off" regardless of stream flags.
+  Setting `nil` keeps subtitles off for the rest of that playback
+  session, including tracks the stream adds later; a new media, a replay,
+  or a recast starts again from the stream's defaults, which is why the
+  loop runs for every track change. Set ``Player/selectedSubtitleTrack``
+  again when the user opts in.
 
 ## Topics
 

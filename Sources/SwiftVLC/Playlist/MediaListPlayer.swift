@@ -327,9 +327,14 @@ public final class MediaListPlayer {
   }
 
   /// Plays a specific media item from the list.
-  /// - Throws: ``VLCError/invalidState(_:)`` if no media list is attached,
-  ///   or ``VLCError/operationFailed(_:)`` if the item is not in the list.
+  /// - Throws: ``VLCError/invalidInput(_:)`` if `media` reads through a
+  ///   ``MediaByteStream``, ``VLCError/invalidState(_:)`` if no media list is
+  ///   attached, or ``VLCError/operationFailed(_:)`` if the item is not in the list.
   public func play(_ media: borrowing Media) throws(VLCError) {
+    // Like MediaList, the list player cannot keep a stream factory alive for libVLC.
+    guard !media.isStreamBacked else {
+      throw .invalidInput("stream media cannot be played by a MediaListPlayer; play it with a Player")
+    }
     guard try prepareAttachedPlayerForPlayback() else {
       throw .invalidState("The attached Player is waiting for a fresh native handle")
     }
